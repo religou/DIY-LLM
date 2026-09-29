@@ -21,4 +21,6 @@
 ### 2. 参考资料
 
 * [datawhalechina.github.io/diy-llm](https://datawhalechina.github.io/diy-llm/)
-*
+* [understanding-deep-learning-zh.vercel.app](https://understanding-deep-learning-zh.vercel.app/)
+* [nano-ai.tech/articles](https://nano-ai.tech/articles/)
+* [datawhalechina.github.io/hello-gpu/part0-intro/chapter0](https://datawhalechina.github.io/hello-gpu/part0-intro/chapter0/)

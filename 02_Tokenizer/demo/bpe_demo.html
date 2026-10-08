@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>简易 BPE Tokenizer 可视化演示</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #172033;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --scan: #facc15;
+    --match: #22c55e;
+    --pass: #60a5fa;
+    --best: #f472b6;
+    --mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header { padding: 16px 24px 4px; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  header p { margin: 0; color: var(--muted); }
+  h2 {
+    margin: 0 0 10px;
+    font-size: 15px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2 .sub { color: var(--muted); font-weight: normal; font-size: 12px; }
+
+  .controls {
+    margin: 12px 24px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    align-items: flex-end;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { color: var(--muted); font-size: 12px; }
+  input[type="text"], input[type="number"], select {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-family: var(--mono);
+    font-size: 14px;
+  }
+  input[type="text"] { width: 320px; }
+  input[type="number"] { width: 80px; }
+  button {
+    background: #0e7490;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover { background: #0891b2; }
+  button.secondary { background: #334155; }
+  button.secondary:hover { background: #475569; }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .presets button { padding: 4px 8px; font-size: 12px; font-family: var(--mono); }
+  .warn { color: #fca5a5; font-size: 12px; }
+
+  .playbar {
+    margin: 0 24px 12px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+  }
+  .playbar input[type="range"] { flex: 1; min-width: 200px; accent-color: var(--accent); }
+  .frame-info { font-family: var(--mono); color: var(--muted); min-width: 110px; text-align: right; }
+  .msg {
+    flex-basis: 100%;
+    padding: 8px 12px;
+    background: var(--panel-2);
+    border-left: 4px solid var(--accent);
+    border-radius: 4px;
+    font-size: 14px;
+    min-height: 38px;
+  }
+  .msg code { font-family: var(--mono); color: var(--scan); }
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(420px, 1fr) minmax(480px, 1.4fr);
+    gap: 12px;
+    padding: 0 24px 24px;
+  }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    min-width: 0;
+  }
+  .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  /* 代码面板 */
+  .code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 8px 0;
+    overflow-x: auto;
+  }
+  .code .ln {
+    display: flex;
+    white-space: pre;
+    padding: 0 10px 0 0;
+    border-left: 3px solid transparent;
+    transition: background .15s;
+  }
+  .code .ln .no { width: 32px; text-align: right; padding-right: 10px; color: #475569; user-select: none; flex-shrink: 0; }
+  .code .ln.active { background: rgba(250, 204, 21, .16); border-left-color: var(--scan); }
+  .code .ln.active .no { color: var(--scan); }
+  .code .ln.extra { opacity: .75; }
+  .kw { color: #c084fc; }
+  .str { color: #86efac; }
+  .num { color: #fdba74; }
+  .self { color: #f87171; }
+  .cm { color: #64748b; font-style: italic; }
+  .fn { color: #7dd3fc; }
+
+  /* 变量面板 */
+  .vars {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px;
+  }
+  .var {
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: var(--mono);
+  }
+  .var .k { color: var(--muted); font-size: 11px; display: block; }
+  .var .v { font-size: 15px; word-break: break-all; }
+
+  /* token 序列 */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px 6px 4px;
+    background: var(--panel-2);
+    border-radius: 6px;
+    min-height: 74px;
+  }
+  .chip {
+    position: relative;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 34px;
+    padding: 4px 6px 3px;
+    border-radius: 6px;
+    background: #334155;
+    border: 2px solid #475569;
+    font-family: var(--mono);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .chip .t { font-size: 15px; white-space: pre; }
+  .chip .id { font-size: 10px; color: #cbd5e1; opacity: .85; }
+  .chip .idx { position: absolute; top: -11px; font-size: 9px; color: #64748b; }
+  .chip.scan  { box-shadow: 0 0 0 3px var(--scan);  transform: translateY(-3px); }
+  .chip.match { box-shadow: 0 0 0 3px var(--match); transform: translateY(-3px); }
+  .chip.pass  { box-shadow: 0 0 0 3px var(--pass);  transform: translateY(-3px); }
+  .chip.best  { box-shadow: 0 0 0 3px var(--best); }
+  .chip.fresh { box-shadow: 0 0 0 3px var(--match); }
+  .chip.done  { opacity: .45; }
+  .empty { color: #64748b; font-style: italic; padding: 8px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend span::before {
+    content: "";
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: -1px;
+    background: var(--c);
+  }
+
+  /* 表格 */
+  .tables { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .tables { grid-template-columns: 1fr; } }
+  .scroll { max-height: 260px; overflow-y: auto; border-radius: 6px; background: var(--panel-2); }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px; }
+  th, td { padding: 4px 8px; text-align: left; border-bottom: 1px solid #263246; }
+  th { position: sticky; top: 0; background: #22304a; color: var(--muted); font-weight: normal; font-size: 12px; }
+  tr.cur td { background: rgba(250, 204, 21, .18); }
+  tr.best td { background: rgba(244, 114, 182, .22); }
+  tr.fresh td { background: rgba(34, 197, 94, .18); }
+  td.cnt { text-align: right; }
+  .bar { height: 6px; background: var(--accent); border-radius: 3px; margin-top: 2px; }
+
+  /* 历史 */
+  .hist { display: flex; flex-direction: column; gap: 4px; font-family: var(--mono); font-size: 12px; }
+  .hist .row { display: flex; align-items: center; gap: 8px; }
+  .hist .lab { width: 64px; color: var(--muted); }
+  .hist .b { height: 14px; background: linear-gradient(90deg, #0e7490, #38bdf8); border-radius: 3px; }
+  .hist .row.now .lab { color: var(--scan); }
+
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>简易 BPE Tokenizer 可视化演示</h1>
+  <p>逐步展示 <code>get_stats</code> 统计相邻 pair、<code>merge_tokens</code> 合并 pair，以及 <code>merges</code> / <code>vocab_size</code> 的变化。快捷键：← → 单步，空格 播放/暂停。</p>
+</header>
+
+<section class="controls" aria-label="参数设置">
+  <div class="field">
+    <label for="text">训练文本（按 UTF-8 编码为字节）</label>
+    <input type="text" id="text" value="aaabdaaabac">
+  </div>
+  <div class="field">
+    <label for="num">num_merges</label>
+    <input type="number" id="num" value="3" min="0" max="50">
+  </div>
+  <div class="field">
+    <label>示例</label>
+    <div class="presets">
+      <button class="secondary" data-text="aaabdaaabac" data-num="3">aaabdaaabac</button>
+      <button class="secondary" data-text="low lower lowest newer wider" data-num="6">low lower lowest…</button>
+      <button class="secondary" data-text="你好你好，世界" data-num="5">你好你好，世界</button>
+    </div>
+  </div>
+  <button id="btnBuild">生成演示</button>
+  <span id="warn" class="warn" role="alert"></span>
+</section>
+
+<section class="playbar" aria-label="播放控制">
+  <button class="secondary" id="btnFirst" aria-label="回到开头">⏮</button>
+  <button class="secondary" id="btnPrev" aria-label="上一步">◀ 上一步</button>
+  <button id="btnPlay" aria-label="播放">▶ 播放</button>
+  <button class="secondary" id="btnNext" aria-label="下一步">下一步 ▶</button>
+  <button class="secondary" id="btnRound" aria-label="跳到下一轮合并">⏭ 下一轮</button>
+  <button class="secondary" id="btnLast" aria-label="跳到结尾">⏭⏭ 结尾</button>
+  <label for="speed" class="sr-only">播放速度</label>
+  <select id="speed">
+    <option value="1400">慢速</option>
+    <option value="700" selected>中速</option>
+    <option value="300">快速</option>
+    <option value="80">极速</option>
+  </select>
+  <label for="slider" class="sr-only">进度</label>
+  <input type="range" id="slider" min="0" max="0" value="0">
+  <span class="frame-info" id="frameInfo">0 / 0</span>
+  <div class="msg" id="msg" aria-live="polite"></div>
+</section>
+
+<main>
+  <div class="col">
+    <section class="panel">
+      <h2>代码 <span class="sub">高亮行 = 当前执行位置（train 为演示补充的训练循环）</span></h2>
+      <div class="code" id="code"></div>
+    </section>
+    <section class="panel">
+      <h2>变量</h2>
+      <div class="vars" id="vars"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel">
+      <h2>tokens <span class="sub" id="tokSub"></span></h2>
+      <div class="chips" id="tokens"></div>
+      <div class="legend">
+        <span style="--c: var(--scan)">正在检查的 pair</span>
+        <span style="--c: var(--match)">匹配并合并</span>
+        <span style="--c: var(--pass)">原样保留</span>
+        <span style="--c: var(--best)">本轮最高频 pair</span>
+        <span style="--c: #475569">字节 token (0–255)</span>
+        <span style="--c: hsl(200 70% 40%)">合并产生的新 token (≥256)</span>
+      </div>
+    </section>
+
+    <section class="panel" id="newPanel">
+      <h2>new_tokens <span class="sub">merge_tokens 正在构建的新序列</span></h2>
+      <div class="chips" id="newTokens"></div>
+    </section>
+
+    <div class="tables">
+      <section class="panel">
+        <h2>pairs = get_stats(tokens) <span class="sub">Counter</span></h2>
+        <div class="scroll">
+          <table aria-label="相邻 pair 计数">
+            <thead><tr><th>pair</th><th>文本</th><th style="text-align:right">count</th></tr></thead>
+            <tbody id="stats"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel">
+        <h2>self.merges <span class="sub">{(a, b): new_token_id}</span></h2>
+        <div class="scroll">
+          <table aria-label="合并规则">
+            <thead><tr><th>(a, b)</th><th>文本</th><th>new id</th></tr></thead>
+            <tbody id="merges"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <h2>序列长度变化 <span class="sub">每轮合并后 len(tokens)</span></h2>
+      <div class="hist" id="hist"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------------- 代码展示 ----------------
+  const CODE = [
+    'class BPETokenizer:',
+    '    def __init__(self, num_merges):',
+    '        self.num_merges = num_merges',
+    '        self.merges = {}  # {(a,b): new_token_id}',
+    '        self.vocab_size = 256  # 从byte开始',
+    '',
+    '    def get_stats(self, tokens):',
+    '        pairs = Counter()',
+    '        for i in range(len(tokens) - 1):',
+    '            pairs[(tokens[i], tokens[i+1])] += 1',
+    '        return pairs',
+    '',
+    '    def merge_tokens(self, tokens, pair, new_token):',
+    '        i = 0',
+    '        new_tokens = []',
+    '        while i < len(tokens):',
+    '            if i < len(tokens) - 1 and (tokens[i], tokens[i+1]) == pair:',
+    '                new_tokens.append(new_token)',
+    '                i += 2',
+    '            else:',
+    '                new_tokens.append(tokens[i])',
+    '                i += 1',
+    '        return new_tokens',
+    '',
+    '    # ---- 训练循环（演示补充）----',
+    '    def train(self, text):',
+    '        tokens = list(text.encode("utf-8"))',
+    '        for _ in range(self.num_merges):',
+    '            stats = self.get_stats(tokens)',
+    '            if not stats: break',
+    '            pair = max(stats, key=stats.get)',
+    '            new_token = self.vocab_size',
+    '            tokens = self.merge_tokens(tokens, pair, new_token)',
+    '            self.merges[pair] = new_token',
+    '            self.vocab_size += 1',
+  ];
+  const EXTRA_FROM = 24; // 演示补充部分的起始行
+
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function highlight(line) {
+    const hashAt = line.indexOf("#");
+    const codePart = hashAt >= 0 ? line.slice(0, hashAt) : line;
+    const comment = hashAt >= 0 ? line.slice(hashAt) : "";
+    const re = /("[^"]*")|\b(class|def|for|in|while|if|else|return|and|not|break)\b|\b(self)\b|\b(\d+)\b|\b(get_stats|merge_tokens|train|__init__|Counter|range|len|list|max)\b/g;
+    const html = esc(codePart).replace(re, (m, s, kw, sf, n, fn) =>
+      s ? `<span class="str">${s}</span>` :
+      kw ? `<span class="kw">${kw}</span>` :
+      sf ? `<span class="self">${sf}</span>` :
+      n ? `<span class="num">${n}</span>` :
+      `<span class="fn">${fn}</span>`);
+    return html + (comment ? `<span class="cm">${esc(comment)}</span>` : "");
+  }
+
+  const codeEl = document.getElementById("code");
+  const codeLines = CODE.map((line, i) => {
+    const div = document.createElement("div");
+    div.className = "ln" + (i >= EXTRA_FROM ? " extra" : "");
+    div.innerHTML = `<span class="no">${i + 1}</span><span>${highlight(line) || " "}</span>`;
+    codeEl.appendChild(div);
+    return div;
+  });
+
+  // ---------------- token 显示工具 ----------------
+  const MAX_BYTES = 160;
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let vocabBytes = {};
+
+  const hex = b => Array.from(b, x => "\\x" + x.toString(16).padStart(2, "0")).join("");
+  function L(id) {
+    const b = vocabBytes[id];
+    let s;
+    try { s = decoder.decode(b); } catch (e) { return hex(b); } // 不完整的 UTF-8（如汉字的部分字节）
+    s = s.replace(/ /g, "␣").replace(/\n/g, "↵").replace(/\t/g, "⇥");
+    if (/[\x00-\x1f\x7f]/.test(s)) return hex(b);
+    return s;
+  }
+  const concatBytes = (x, y) => { const u = new Uint8Array(x.length + y.length); u.set(x); u.set(y, x.length); return u; };
+  const pairText = k => { const [a, b] = k.split(",").map(Number); return [a, b]; };
+
+  // ---------------- 预计算所有帧 ----------------
+  let frames = [];
+
+  function build() {
+    stop();
+    const warn = document.getElementById("warn");
+    warn.textContent = "";
+    const text = document.getElementById("text").value;
+    let num = parseInt(document.getElementById("num").value, 10);
+    if (!Number.isFinite(num) || num < 0) num = 0;
+    if (num > 50) { num = 50; warn.textContent = "num_merges 最多 50，已截断。"; }
+
+    let bytes = new TextEncoder().encode(text);
+    if (bytes.length > MAX_BYTES) {
+      bytes = bytes.slice(0, MAX_BYTES);
+      warn.textContent = `文本超过 ${MAX_BYTES} 字节，只取前 ${MAX_BYTES} 字节演示。`;
+    }
+    if (bytes.length === 0) { warn.textContent = "请输入训练文本。"; }
+
+    vocabBytes = {};
+    for (let i = 0; i < 256; i++) vocabBytes[i] = Uint8Array.of(i);
+
+    frames = [];
+    let tokens = Array.from(bytes);
+    const merges = [];
+    let vocabSize = 256;
+    const history = [tokens.length];
+    // ctx 中的字段会被后续帧继承，直到被覆盖
+    let ctx = { round: 0, pairs: null, best: null, newId: null, newTokens: null };
+
+    const push = (o) => frames.push(Object.assign({
+      tokens: tokens.slice(),
+      merges: merges.slice(),
+      vocabSize,
+      history: history.slice(),
+      hl: [], hlCls: "", curPair: null, newHl: -1, fresh: null, vars: {}, line: [],
+    }, ctx, o));
+
+    push({ line: [1, 2, 3, 4], msg: `__init__：<code>merges = {}</code>，<code>vocab_size = 256</code>（0–255 留给单个字节）` });
+    push({ line: [26], msg: `<code>text.encode("utf-8")</code> 得到 ${tokens.length} 个字节，每个字节就是一个初始 token` });
+
+    for (let round = 1; round <= num; round++) {
+      ctx = { round, pairs: null, best: null, newId: null, newTokens: null };
+      push({ line: [27, 28], msg: `第 ${round}/${num} 轮：调用 <code>get_stats(tokens)</code> 统计所有相邻 pair` });
+
+      // ---- get_stats ----
+      const pairs = new Map();
+      ctx.pairs = [];
+      push({ line: [7], msg: `<code>pairs = Counter()</code>` });
+      for (let i = 0; i < tokens.length - 1; i++) {
+        const k = tokens[i] + "," + tokens[i + 1];
+        pairs.set(k, (pairs.get(k) || 0) + 1);
+        ctx.pairs = [...pairs];
+        push({
+          line: [8, 9], hl: [i, i + 1], hlCls: "scan", curPair: k, vars: { i },
+          msg: `i = ${i}：pair (${tokens[i]}, ${tokens[i + 1]}) 即 “${L(tokens[i])}”+“${L(tokens[i + 1])}”，计数 +1 → <code>${pairs.get(k)}</code>`,
+        });
+      }
+      push({ line: [10], msg: `<code>return pairs</code>：共 ${pairs.size} 种不同的相邻 pair` });
+
+      if (pairs.size === 0) {
+        push({ line: [29], msg: `stats 为空（tokens 少于 2 个），没有可合并的 pair，提前结束` });
+        break;
+      }
+
+      // ---- 选出最高频 pair（与 Python max 一致：并列时取最先出现的）----
+      let best = null, bc = -1;
+      for (const [k, c] of pairs) if (c > bc) { best = k; bc = c; }
+      const [a, b] = pairText(best);
+      const occ = [];
+      for (let i = 0; i < tokens.length - 1; i++) {
+        if (tokens[i] === a && tokens[i + 1] === b) { occ.push(i, i + 1); i++; }
+      }
+      ctx.best = best;
+      push({ line: [30], hl: occ, hlCls: "best", msg: `<code>max(stats, key=stats.get)</code> → (${a}, ${b}) “${L(a)}${L(b)}”，出现 ${bc} 次` });
+
+      const newId = vocabSize;
+      vocabBytes[newId] = concatBytes(vocabBytes[a], vocabBytes[b]);
+      ctx.newId = newId;
+      push({ line: [31], hl: occ, hlCls: "best", msg: `<code>new_token = vocab_size = ${newId}</code>，它代表字节串 “${L(newId)}”` });
+
+      // ---- merge_tokens ----
+      const nt = [];
+      ctx.newTokens = [];
+      push({ line: [32, 12], vars: { i: 0 }, msg: `调用 <code>merge_tokens(tokens, (${a}, ${b}), ${newId})</code>` });
+      push({ line: [13, 14], vars: { i: 0 }, msg: `<code>i = 0</code>，<code>new_tokens = []</code>` });
+      let i = 0;
+      while (i < tokens.length) {
+        const doneUntil = i;
+        if (i < tokens.length - 1 && tokens[i] === a && tokens[i + 1] === b) {
+          push({ line: [15, 16], hl: [i, i + 1], hlCls: "match", vars: { i, doneUntil },
+            msg: `i = ${i}：(tokens[${i}], tokens[${i + 1}]) = (${a}, ${b}) == pair ✓` });
+          nt.push(newId);
+          ctx.newTokens = nt.slice();
+          push({ line: [17, 18], hl: [i, i + 1], hlCls: "match", newHl: nt.length - 1, vars: { i: i + 2, doneUntil },
+            msg: `<code>new_tokens.append(${newId})</code>，两个 token 合成一个；<code>i += 2</code> → ${i + 2}` });
+          i += 2;
+        } else {
+          const last = i === tokens.length - 1;
+          push({ line: [15, 16], hl: last ? [i] : [i, i + 1], hlCls: "scan", vars: { i, doneUntil },
+            msg: last
+              ? `i = ${i}：已是最后一个 token，无法组成 pair`
+              : `i = ${i}：(${tokens[i]}, ${tokens[i + 1]}) ≠ pair (${a}, ${b})` });
+          nt.push(tokens[i]);
+          ctx.newTokens = nt.slice();
+          push({ line: [19, 20, 21], hl: [i], hlCls: "pass", newHl: nt.length - 1, vars: { i: i + 1, doneUntil },
+            msg: `<code>new_tokens.append(tokens[${i}])</code> 原样保留 “${L(tokens[i])}”；<code>i += 1</code> → ${i + 1}` });
+          i += 1;
+        }
+      }
+      push({ line: [22], vars: { i }, msg: `<code>return new_tokens</code>：长度 ${tokens.length} → ${nt.length}` });
+
+      // ---- 更新状态 ----
+      tokens = nt;
+      merges.push([a, b, newId]);
+      vocabSize++;
+      history.push(tokens.length);
+      ctx.newTokens = null;
+      push({ line: [32, 33, 34], fresh: newId,
+        msg: `<code>merges[(${a}, ${b})] = ${newId}</code>，<code>vocab_size</code> → ${vocabSize}` });
+    }
+
+    ctx = Object.assign({}, ctx, { pairs: null, best: null, newId: null, newTokens: null });
+    const ratio = bytes.length ? (bytes.length / Math.max(tokens.length, 1)).toFixed(2) : "-";
+    push({ line: [], done: true,
+      msg: `训练完成：${bytes.length} 个字节 → ${tokens.length} 个 token，学到 ${merges.length} 条合并规则，压缩比 ${ratio}×` });
+
+    const slider = document.getElementById("slider");
+    slider.max = frames.length - 1;
+    go(0);
+  }
+
+  // ---------------- 渲染 ----------------
+  function chipColor(id) {
+    if (id < 256) return null;
+    const h = ((id - 256) * 137.508 + 190) % 360;
+    return { bg: `hsl(${h} 65% 30%)`, bd: `hsl(${h} 80% 60%)` };
+  }
+
+  function renderChips(el, list, opts) {
+    el.innerHTML = "";
+    if (!list || list.length === 0) {
+      el.innerHTML = `<span class="empty">[ ]（空）</span>`;
+      return;
+    }
+    const hl = new Set(opts.hl || []);
+    const frag = document.createDocumentFragment();
+    list.forEach((id, idx) => {
+      const c = document.createElement("div");
+      c.className = "chip";
+      const col = chipColor(id);
+      if (col) { c.style.background = col.bg; c.style.borderColor = col.bd; }
+      if (hl.has(idx)) c.classList.add(opts.hlCls);
+      if (opts.newHl === idx) c.classList.add("fresh");
+      if (opts.fresh != null && id === opts.fresh) c.classList.add("fresh");
+      if (opts.doneUntil != null && idx < opts.doneUntil && !hl.has(idx)) c.classList.add("done");
+      const label = L(id);
+      c.title = `id ${id} · 字节 ${hex(vocabBytes[id])}`;
+      c.setAttribute("aria-label", `位置 ${idx}，token ${id}，文本 ${label}`);
+      c.innerHTML = `<span class="idx">${idx}</span><span class="t">${esc(label)}</span><span class="id">${id}</span>`;
+      frag.appendChild(c);
+    });
+    el.appendChild(frag);
+  }
+
+  function renderVars(f) {
+    const v = [
+      ["轮次", f.round ? `${f.round} / ${document.getElementById("num").value}` : "-"],
+      ["i", f.vars.i ?? "-"],
+      ["len(tokens)", f.tokens.length],
+      ["len(new_tokens)", f.newTokens ? f.newTokens.length : "-"],
+      ["pair", f.best ? `(${f.best.replace(",", ", ")})` : "-"],
+      ["new_token", f.newId ?? "-"],
+      ["vocab_size", f.vocabSize],
+      ["len(merges)", f.merges.length],
+    ];
+    document.getElementById("vars").innerHTML = v.map(([k, val]) =>
+      `<div class="var"><span class="k">${k}</span><span class="v">${esc(String(val))}</span></div>`).join("");
+  }
+
+  function renderStats(f) {
+    const tb = document.getElementById("stats");
+    if (!f.pairs) { tb.innerHTML = `<tr><td colspan="3" class="empty">尚未统计</td></tr>`; return; }
+    if (f.pairs.length === 0) { tb.innerHTML = `<tr><td colspan="3" class="empty">Counter()（空）</td></tr>`; return; }
+    const maxC = Math.max(...f.pairs.map(p => p[1]));
+    const rows = f.pairs.map(([k, c], idx) => ({ k, c, idx }))
+      .sort((x, y) => y.c - x.c || x.idx - y.idx);
+    tb.innerHTML = rows.map(({ k, c }) => {
+      const [a, b] = pairText(k);
+      const cls = k === f.best ? "best" : (k === f.curPair ? "cur" : "");
+      return `<tr class="${cls}"><td>(${a}, ${b})</td><td>${esc(L(a))} ${esc(L(b))}</td>` +
+        `<td class="cnt">${c}<div class="bar" style="width:${(c / maxC) * 100}%"></div></td></tr>`;
+    }).join("");
+    const curRow = tb.querySelector("tr.cur, tr.best");
+    if (curRow) curRow.scrollIntoView({ block: "nearest" });
+  }
+
+  function renderMerges(f) {
+    const tb = document.getElementById("merges");
+    if (f.merges.length === 0) { tb.innerHTML = `<tr><td colspan="3" class="empty">{}（空）</td></tr>`; return; }
+    tb.innerHTML = f.merges.map(([a, b, id]) =>
+      `<tr class="${id === f.fresh ? "fresh" : ""}"><td>(${a}, ${b})</td>` +
+      `<td>${esc(L(a))} + ${esc(L(b))} → ${esc(L(id))}</td><td>${id}</td></tr>`).join("");
+  }
+
+  function renderHist(f) {
+    const h = f.history;
+    const base = Math.max(h[0], 1);
+    document.getElementById("hist").innerHTML = h.map((n, i) =>
+      `<div class="row ${i === h.length - 1 ? "now" : ""}"><span class="lab">${i === 0 ? "初始" : "第" + i + "轮"}</span>` +
+      `<div class="b" style="width:${Math.max((n / base) * 70, 1)}%"></div><span>${n}</span></div>`).join("");
+  }
+
+  let cur = 0;
+  function go(n) {
+    if (!frames.length) return;
+    cur = Math.max(0, Math.min(frames.length - 1, n));
+    const f = frames[cur];
+
+    codeLines.forEach((el, idx) => el.classList.toggle("active", f.line.includes(idx)));
+    document.getElementById("msg").innerHTML = f.msg;
+    document.getElementById("slider").value = cur;
+    document.getElementById("frameInfo").textContent = `${cur + 1} / ${frames.length}`;
+    document.getElementById("tokSub").textContent = `长度 ${f.tokens.length}`;
+
+    renderChips(document.getElementById("tokens"), f.tokens, {
+      hl: f.hl, hlCls: f.hlCls, fresh: f.fresh, doneUntil: f.newTokens ? f.vars.doneUntil : null,
+    });
+    const newPanel = document.getElementById("newPanel");
+    newPanel.style.display = f.newTokens ? "" : "none";
+    if (f.newTokens) renderChips(document.getElementById("newTokens"), f.newTokens, { newHl: f.newHl });
+
+    renderVars(f);
+    renderStats(f);
+    renderMerges(f);
+    renderHist(f);
+  }
+
+  // ---------------- 播放控制 ----------------
+  let timer = null;
+  const btnPlay = document.getElementById("btnPlay");
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+    btnPlay.textContent = "▶ 播放";
+    btnPlay.setAttribute("aria-label", "播放");
+  }
+  function play() {
+    if (cur >= frames.length - 1) go(0);
+    btnPlay.textContent = "⏸ 暂停";
+    btnPlay.setAttribute("aria-label", "暂停");
+    const ms = parseInt(document.getElementById("speed").value, 10);
+    timer = setInterval(() => {
+      if (cur >= frames.length - 1) { stop(); return; }
+      go(cur + 1);
+    }, ms);
+  }
+  const toggle = () => (timer ? stop() : play());
+
+  function nextRound() {
+    stop();
+    for (let k = cur + 1; k < frames.length; k++) {
+      const f = frames[k];
+      if (f.fresh != null || f.done) { go(k); return; }
+    }
+    go(frames.length - 1);
+  }
+
+  document.getElementById("btnBuild").addEventListener("click", build);
+  document.getElementById("btnFirst").addEventListener("click", () => { stop(); go(0); });
+  document.getElementById("btnPrev").addEventListener("click", () => { stop(); go(cur - 1); });
+  document.getElementById("btnNext").addEventListener("click", () => { stop(); go(cur + 1); });
+  document.getElementById("btnLast").addEventListener("click", () => { stop(); go(frames.length - 1); });
+  document.getElementById("btnRound").addEventListener("click", nextRound);
+  btnPlay.addEventListener("click", toggle);
+  document.getElementById("slider").addEventListener("input", e => { stop(); go(parseInt(e.target.value, 10)); });
+  document.getElementById("speed").addEventListener("change", () => { if (timer) { stop(); play(); } });
+  ["text", "num"].forEach(id => document.getElementById(id).addEventListener("keydown", e => { if (e.key === "Enter") build(); }));
+  document.querySelectorAll(".presets button").forEach(b => b.addEventListener("click", () => {
+    document.getElementById("text").value = b.dataset.text;
+    document.getElementById("num").value = b.dataset.num;
+    build();
+  }));
+
+  document.addEventListener("keydown", e => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "select" || tag === "textarea" || tag === "button") return;
+    if (e.key === "ArrowRight") { stop(); go(cur + 1); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { stop(); go(cur - 1); e.preventDefault(); }
+    else if (e.key === " ") { toggle(); e.preventDefault(); }
+  });
+
+  build();
+})();
+</script>
+</body>
+</html>

@@ -99,3 +99,32 @@ x = torch.ones(4, 8, 16, 32) # 形状为 [批大小, 序列长度, 样本特征,
 w = torch.ones(32, 2)        # 权重矩阵
 y = x @ w                    # 矩阵乘法
 assert y.size() == torch.Size([4, 8, 16, 2]) # 结果形状
+
+# 使用 einops 代替人对于维度的记忆
+from einops import einsum
+
+# 使用 jaxtyping 定义两个张量
+x: Float[torch.Tensor, "batch seq1 hidden"] = torch.ones(2, 3, 4)  
+y: Float[torch.Tensor, "batch seq2 hidden"] = torch.ones(2, 3, 4)  
+
+# 传统方式
+z = x @ y.transpose(-2, -1)  # batch, sequence, sequence
+
+# Einops方式
+z = einsum(x, y, "batch seq1 hidden, batch seq2 hidden -> batch seq1 seq2")
+# 未在输出中命名的维度（hidden）会被自动求和
+
+# 更通用的做法
+z = einsum(x, y, "... seq1 hidden, ... seq2 hidden -> ... seq1 seq2")
+
+
+from einops import reduce
+
+x: Float[torch.Tensor, "batch seq hidden"] = torch.ones(2, 3, 4)
+
+# 传统写法
+y = x.mean(dim=-1)  # 对最后一个维度 hidden 上求平均
+
+# Einops 写法
+y = reduce(x, "... hidden -> ...", "mean")
+

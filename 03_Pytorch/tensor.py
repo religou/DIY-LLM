@@ -226,4 +226,28 @@ x = einsum(x, w, "... hidden1, hidden1 hidden2 -> ... hidden2")
 
 # 不同精度的运算速度完全不同。Percy 特别强调，现在的 GPU 已经不太优化 fp32 了："如果你现在用 fp32 做训练，会发现真的非常非常慢，因为硬件优化的重点已经转向了 bf16 甚至 fp8。"
 
-# 将张量（tensors）从CPU内存移动到GPU内存
+# 将张量（tensors）从CPU内存移动到GPU内存。在实际应用中，要尽量减少 CPU 和 GPU 之间的数据传输，因为数据传输是通过 PCI BUS 进行的，速度远慢于 GPU 内部的计算速度。因此，应尽可能在 GPU 上进行所有计算操作。
+if not torch.cuda.is_available():
+        return
+num_gpus = torch.cuda.device_count() # 获取GPU数量
+for i in range(num_gpus):
+    properties = torch.cuda.get_device_properties(i) # 获取第i块GPU的属性（如型号、显存大小等）
+memory_allocated = torch.cuda.memory_allocated() # 获取当前已分配给PyTorch的显存总量
+# 方法1：移动现有张量
+y = x.to("cuda:0") # 将张量x移动到编号为0的GPU上
+assert y.device == torch.device("cuda", 0) # 验证移动成功
+# 方法2:直接在GPU上创建张量
+z = torch.zeros(32, 32, device="cuda:0") # 在GPU上直接创建一个32x32的零矩阵
+# 验证内存分配
+new_memory_allocated = torch.cuda.memory_allocated() # 再次查询当前显存占用
+memory_used = new_memory_allocated - memory_allocated # 计算新增的显存占用
+assert memory_used == 2 * (32 * 32 * 4) # 验证：新增了2个32x32的矩阵，每个元素是4字节的float
+
+# 计算效率
+# 首先区分 FLOPs 和 FLOP/s 的两个概念
+# FLOPs:执行的浮点运算总数，这是一个衡量计算量的指标
+# FLOP/s:硬件每秒能执行的浮点运算次数，也写作 FLOPS（大写S）。这是一个衡量“速度”的指标。例如，H100 GPU峰值性能为 990 TFLOP/s
+# GPT-3 (2020年)：训练耗时约 FLOPs
+# GPT-4 (2023年)：据推测训练耗时约 FLOPs
+# NVIDIA A100：峰值性能为 312 TFLOP/s (即 FLOP/s) 
+# NVIDIA H100：峰值性能为 1979 TFLOP/s，但这通常是在启用“稀疏性”（sparsity）的情况下。对于密集矩阵乘法，其性能约为一半，即 989.5 TFLOP/s

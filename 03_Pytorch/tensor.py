@@ -251,3 +251,21 @@ assert memory_used == 2 * (32 * 32 * 4) # 验证：新增了2个32x32的矩阵�
 # GPT-4 (2023年)：据推测训练耗时约 FLOPs
 # NVIDIA A100：峰值性能为 312 TFLOP/s (即 FLOP/s) 
 # NVIDIA H100：峰值性能为 1979 TFLOP/s，但这通常是在启用“稀疏性”（sparsity）的情况下。对于密集矩阵乘法，其性能约为一半，即 989.5 TFLOP/s
+# 矩阵乘法的计算量：总 FLOPs = 2 * B * D * K，因为矩阵计算涉及到一次乘法和一次加法
+# 示例：
+# if torch.cuda.is_available():
+#     B = 16384  # Number of points
+#     D = 32768  # Dimension
+#     K = 8192   # Number of outputs
+# else:
+#     B = 1024
+#     D = 256
+#     K = 64
+# device = get_device()
+# x = torch.ones(B, D, device=device)
+# w = torch.randn(D, K, device=device)
+# y = x @ w
+# D × K 正好是这个线性层的参数数量！所以我们可以重写为
+# 总 FLOPs = 2 * 数据量 * 模型参数量
+# 在语言模型中，常用 token 代替数据点：总 FLOPs = 2 * token数量 * 模型参数量
+
